@@ -29,13 +29,15 @@ die() {
 # paths to some project directories
 NOTEBOOK_DIR="notebook"
 IMAGES_DIR="images"
+SERVER_DIR="server"
 
 DOCKER_ROOT="/data"	# where the project resides inside docker
 
 # generate mount commands
 DATA_VOLUME=" \
 --volume $PWD/$NOTEBOOK_DIR:$DOCKER_ROOT/$NOTEBOOK_DIR \
---volume $PWD/$IMAGES_DIR:$DOCKER_ROOT/$IMAGES_DIR "
+--volume $PWD/$IMAGES_DIR:$DOCKER_ROOT/$IMAGES_DIR \
+--volume $PWD/$SERVER_DIR:$DOCKER_ROOT/$SERVER_DIR "
 
 # parse user arguments
 USER_COMMAND=""

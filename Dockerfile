@@ -41,7 +41,7 @@ RUN mkdir -p /data/models && \
     wget -P yolov9/weights https://github.com/WongKinYiu/yolov9/releases/download/v0.1/gelan-e.pt
 
 # Install the specific version of scikit-learn
-RUN pip3 install --no-cache-dir scikit-learn==1.2.2
+RUN pip3 install --no-cache-dir scikit-learn==1.2.2 fastapi uvicorn gunicorn
 
 COPY rf_model.joblib /data/models/rf_model.joblib
 

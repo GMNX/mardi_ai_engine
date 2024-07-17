@@ -1,4 +1,5 @@
 '''Inference module for the server'''
+import os
 import base64
 import cv2
 import torch
@@ -12,6 +13,8 @@ from utils.general import (check_img_size, non_max_suppression, scale_boxes, xyx
 from utils.augmentations import letterbox
 from utils.torch_utils import select_device, smart_inference_mode
 
+os.environ['PYTORCH_CUDA_ALLOC_CONF']='max_split_size_mb:128' 
+torch.cuda.set_per_process_memory_fraction(0.8, 0)
 
 class Inference():
     def __init__(self, yolo_weights: str, sam_checkpoint: str, classification_model_path: str):

@@ -13,8 +13,8 @@ from utils.general import (check_img_size, non_max_suppression, scale_boxes, xyx
 from utils.augmentations import letterbox
 from utils.torch_utils import select_device, smart_inference_mode
 
-os.environ['PYTORCH_CUDA_ALLOC_CONF']='max_split_size_mb:128' 
-torch.cuda.set_per_process_memory_fraction(0.8, 0)
+#os.environ['PYTORCH_CUDA_ALLOC_CONF']='max_split_size_mb:128' 
+#torch.cuda.set_per_process_memory_fraction(0.8, 0)
 
 class Inference():
     def __init__(self, yolo_weights: str, sam_checkpoint: str, classification_model_path: str):
@@ -130,10 +130,10 @@ class Inference():
         # Filter out the background
         filtered_masks = filter_out_background(sam_result)
 
-        annotated_image = image_rgb.copy()
+        annotated_image = cv2.cvtColor(new_image.astype(np.uint8), cv2.COLOR_BGR2RGB)
         colors = generate_colors(len(filtered_masks))
 
-        petal_count = 4
+        petal_count = 0
         for i, mask in enumerate(filtered_masks):
             segmentation = mask['segmentation'].astype('uint8')
 
@@ -155,6 +155,7 @@ class Inference():
             age = None
         
         # Encode the image to base64
+        annotated_image = resize_image(annotated_image, max_size=(512, 512))
         _, buffer = cv2.imencode('.jpg', annotated_image)
         image_base64 = base64.b64encode(buffer).decode('utf-8')
         return InferenceResponse(status="success", age=age, image_result=image_base64)

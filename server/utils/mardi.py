@@ -5,6 +5,21 @@ import cv2
 import numpy as np
 import requests
 
+def load_image(image_url: str):
+    # Fetch the image from the URL
+    response = requests.get(image_url, timeout=10)
+    if response.status_code != 200:
+        raise ValueError("Unable to fetch image from URL")
+
+    # Convert the image content to a NumPy array
+    image_array = np.frombuffer(response.content, np.uint8)
+
+    # Read the image using OpenCV
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Unable to decode image")
+
+    return image
 
 def show_mask(mask, color):
     '''Function to display mask in an image'''
@@ -83,18 +98,7 @@ def is_white_background(segmentation, image_rgb, threshold=240):
 
 def add_text_to_image(image_url: str, text: str) -> str:
     '''Function to add text to an image'''
-    # Fetch the image from the URL
-    response = requests.get(image_url, timeout=10)
-    if response.status_code != 200:
-        raise ValueError("Unable to fetch image from URL")
-
-    # Convert the image content to a NumPy array
-    image_array = np.frombuffer(response.content, np.uint8)
-
-    # Read the image using OpenCV
-    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-    if image is None:
-        raise ValueError("Unable to decode image")
+    image = load_image(image_url)
 
     # Get the dimensions of the image
     height, width, _ = image.shape

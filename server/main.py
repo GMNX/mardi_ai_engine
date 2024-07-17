@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import torch
 
-from utils import add_text_to_image
+from inference import Inference
 from schema import InferenceInput, InferenceResponse, ErrorResponse
 
 # Initialize API Server
@@ -26,6 +26,23 @@ app = FastAPI(
 # Allow CORS for local debugging
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
+@app.on_event("startup")
+async def startup_event():
+    """
+    Initialize FastAPI and add variables
+    """
+
+    # Initialize the pytorch model
+    yolo_weights = "/data/yolov9/weights/gelan-c.pt"
+    sam_checkpoint = "/data/models/sam_vit_h_4b8939.pth"
+    classification_model_path = "/data/models/rf_mardi.onnx"
+    model = Inference(yolo_weights, sam_checkpoint, classification_model_path)
+
+    # add model and other preprocess tools too app state
+    app.package = {
+        "model": model
+    }
+
 
 @app.post('/detect',
           response_model=InferenceResponse,
@@ -39,14 +56,11 @@ def do_detect(body: InferenceInput):
     try:
         # Get the input data
         image_url = body.image_url
-        text = "Detected"
+        result = app.package["model"].predict(image_url)
+        return result
 
-        # Perform the prediction
-        result = add_text_to_image(image_url, text)
-        age_choice = ['week1', 'week2', 'week3', 'week4']
-        age = random.choice(age_choice)
-
-        return InferenceResponse(status="success", age=age, image_result=result)
+    except ValueError as e:
+        return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
 
     except Exception as e:
         logger.error(traceback.format_exc())

@@ -6,7 +6,7 @@ import torch
 import numpy as np
 import onnxruntime as rt
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
-from utils.mardi import load_image, add_noise, filter_out_background, generate_colors, is_white_background
+from utils.mardi import load_image, add_noise, filter_out_background, generate_colors, is_white_background, resize_image
 from schema import InferenceResponse
 from models.common import DetectMultiBackend
 from utils.general import (check_img_size, non_max_suppression, scale_boxes, xyxy2xywh)
@@ -62,6 +62,7 @@ class Inference():
         max_det = 1000
 
         image = load_image(image_url)
+        image = resize_image(image, max_size=(256, 256))
         im = self.preprocess_image(image)
         pred = self.yolov9_model(im, augment=False, visualize=False)
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)

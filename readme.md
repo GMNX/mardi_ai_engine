@@ -5,7 +5,12 @@
 ./build.sh
 ```
 
-## Run Docker Container
+## Run Docker Container for Jupyter Notebook
 ```bash
 ./run.sh
+```
+
+## Run Inference Server
+```bash
+docker compose up
 ```

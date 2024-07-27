@@ -7,17 +7,21 @@ import numpy as np
 import onnxruntime as rt
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
 from utils.mardi import load_image, add_noise, filter_out_background, generate_colors, is_white_background, resize_image
-from schema import InferenceResponse
 from models.common import DetectMultiBackend
 from utils.general import (check_img_size, non_max_suppression, scale_boxes, xyxy2xywh)
 from utils.augmentations import letterbox
 from utils.torch_utils import select_device, smart_inference_mode
+from database import SessionLocal
+from schemas import InferenceUpdate
+from crud import update_inference
 
 #os.environ['PYTORCH_CUDA_ALLOC_CONF']='max_split_size_mb:128' 
 #torch.cuda.set_per_process_memory_fraction(0.8, 0)
 
 class Inference():
     def __init__(self, yolo_weights: str, sam_checkpoint: str, classification_model_path: str):
+        self.db = SessionLocal()
+
         # YOLOv9 model
         self.device = select_device('0')
         self.yolov9_model = DetectMultiBackend(yolo_weights, device=self.device, dnn=False, data='data/coco.yaml', fp16=False)
@@ -50,8 +54,20 @@ class Inference():
             im = im[None]  # expand for batch dim
         return im
 
+    def update_progress(self, inference_id: str, status: str, progress: float, age: str = None, image_result: str = None):
+        update_data = InferenceUpdate(
+            status=status,
+            progress=progress
+            )
+        if age:
+            update_data.age = age
+        if image_result:
+            update_data.image_result = image_result
+        return update_inference(self.db, inference_id, update_data)
+
     @smart_inference_mode()
-    def predict(self, image_url: str):
+    def predict(self, image_url: str, inference_id: str):
+        self.update_progress(inference_id, "loading_image", 0)
         # Define the desired classes
         desired_classes = [25, 58]
 
@@ -64,6 +80,8 @@ class Inference():
         image = load_image(image_url)
         image = resize_image(image, max_size=(256, 256))
         im = self.preprocess_image(image)
+
+        self.update_progress(inference_id, "detect_tree_area", 25)
         pred = self.yolov9_model(im, augment=False, visualize=False)
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
         self.sam_model.set_image(image)
@@ -71,6 +89,8 @@ class Inference():
         image_height, image_width, _ = image.shape
         gn = torch.tensor(image.shape)[[1, 0, 1, 0]]  # normalization gain whwh
         aggregate_mask = np.zeros(image.shape[:2], dtype=np.uint8)
+        
+        self.update_progress(inference_id, "generating_tree_mask", 30)
         # Process predictions
         for i, det in enumerate(pred):
             if len(det):
@@ -124,6 +144,7 @@ class Inference():
         # Free up GPU memory before processing each image
         torch.cuda.empty_cache()
         torch.cuda.ipc_collect()
+        self.update_progress(inference_id, "generate_leaf_masks", 60)
 
         sam_result = self.mask_generator.generate(image_rgb)
 
@@ -133,6 +154,7 @@ class Inference():
         annotated_image = cv2.cvtColor(new_image.astype(np.uint8), cv2.COLOR_BGR2RGB)
         colors = generate_colors(len(filtered_masks))
 
+        self.update_progress(inference_id, "classifying", 90)
         petal_count = 0
         for i, mask in enumerate(filtered_masks):
             segmentation = mask['segmentation'].astype('uint8')
@@ -158,4 +180,5 @@ class Inference():
         annotated_image = resize_image(annotated_image, max_size=(256, 256))
         _, buffer = cv2.imencode('.jpg', annotated_image)
         image_base64 = base64.b64encode(buffer).decode('utf-8')
-        return InferenceResponse(status="success", age=age, image_result=image_base64)
+
+        return self.update_progress(inference_id, "completed", 100, age, image_base64)

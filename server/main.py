@@ -1,17 +1,17 @@
 import os
 import sys
-import random
-import traceback
-
 import uvicorn
-from fastapi import FastAPI
-from fastapi.logger import logger
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from pika import BasicProperties
 
 import torch
 
-from inference import Inference
-from schema import InferenceInput, InferenceResponse, ErrorResponse
+from bridge import get_rabbitmq_connection
+from crud import create_inference, get_inference, delete_inference
+from database import SessionLocal, init_db
+from schemas import InferenceCreate, Inference
 
 # Initialize API Server
 app = FastAPI(
@@ -27,47 +27,57 @@ app = FastAPI(
 app.add_middleware(CORSMiddleware, allow_origins=["*"])
 
 @app.on_event("startup")
-async def startup_event():
-    """
-    Initialize FastAPI and add variables
-    """
+def on_startup():
+    init_db()
 
-    # Initialize the pytorch model
-    yolo_weights = "/data/yolov9/weights/gelan-c.pt"
-    sam_checkpoint = "/data/models/sam_vit_h_4b8939.pth"
-    classification_model_path = "/data/models/rf_mardi.onnx"
-    model = Inference(yolo_weights, sam_checkpoint, classification_model_path)
-
-    # add model and other preprocess tools too app state
-    app.package = {
-        "model": model
-    }
+# Dependency to get the database session
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-@app.post('/detect',
-          response_model=InferenceResponse,
-          responses={422: {"model": ErrorResponse},
-                     500: {"model": ErrorResponse}}
-          )
-def do_detect(body: InferenceInput):
+@app.post('/detect', response_model=Inference)
+def do_detect(payload: InferenceCreate, db: Session = Depends(get_db)):
     """
     Perform prediction on input data
     """
-    image_url = body.image_url
-    result = app.package["model"].predict(image_url)
+    new_inference = create_inference(db, payload)
+    rabbitmq_client = get_rabbitmq_connection()
+    rabbitmq_client.basic_publish(
+        exchange='',  # default exchange
+        routing_key='mardi_inference_queue',
+        body=new_inference.image_url,
+        properties=BasicProperties(headers={'inference_id': new_inference.id})
+    )
+
+    return new_inference
+
+
+@app.get('/status/{inference_id}', response_model=Inference)
+def fetch_inference(inference_id: str, db: Session = Depends(get_db)):
+    """
+    Get inference by ID
+    """
+    result = get_inference(db, inference_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Inference not found")
+
     return result
-    # try:
-    #     # Get the input data
-    #     image_url = body.image_url
-    #     result = app.package["model"].predict(image_url)
-    #     return result
 
-    # except ValueError as e:
-    #     return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
 
-    # except Exception as e:
-    #     logger.error(traceback.format_exc())
-    #     return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
+@app.delete('/{inference_id}')
+def remove_inference(inference_id: str, db: Session = Depends(get_db)):
+    """
+    Delete inference by ID
+    """
+    result = delete_inference(db, inference_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail="Inference not found")
+
+    return {"id": result.id,"status": "Deleted"}
 
 
 @app.get('/about')

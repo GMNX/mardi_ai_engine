@@ -155,7 +155,7 @@ class Inference():
             age = None
         
         # Encode the image to base64
-        annotated_image = resize_image(annotated_image, max_size=(512, 512))
+        annotated_image = resize_image(annotated_image, max_size=(256, 256))
         _, buffer = cv2.imencode('.jpg', annotated_image)
         image_base64 = base64.b64encode(buffer).decode('utf-8')
         return InferenceResponse(status="success", age=age, image_result=image_base64)

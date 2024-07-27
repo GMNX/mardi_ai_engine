@@ -53,18 +53,21 @@ def do_detect(body: InferenceInput):
     """
     Perform prediction on input data
     """
-    try:
-        # Get the input data
-        image_url = body.image_url
-        result = app.package["model"].predict(image_url)
-        return result
+    image_url = body.image_url
+    result = app.package["model"].predict(image_url)
+    return result
+    # try:
+    #     # Get the input data
+    #     image_url = body.image_url
+    #     result = app.package["model"].predict(image_url)
+    #     return result
 
-    except ValueError as e:
-        return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
+    # except ValueError as e:
+    #     return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
 
-    except Exception as e:
-        logger.error(traceback.format_exc())
-        return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
+    # except Exception as e:
+    #     logger.error(traceback.format_exc())
+    #     return ErrorResponse(error=True, message=str(e), traceback=traceback.format_exc())
 
 
 @app.get('/about')

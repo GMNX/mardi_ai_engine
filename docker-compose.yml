@@ -24,10 +24,15 @@ services:
       - ${PWD}/${NOTEBOOK_DIR}:${DOCKER_ROOT}/${NOTEBOOK_DIR}
       - ${PWD}/${IMAGES_DIR}:${DOCKER_ROOT}/${IMAGES_DIR}
       - ${PWD}/${SERVER_DIR}:${DOCKER_ROOT}/${SERVER_DIR}
+    restart: always
     command: ["sh", "-c", "python3 server/main.py & python3 server/worker.py"]
 
   rabbitmq:
     image: rabbitmq:3.13-management
+    deploy:
+      resources:
+        limits:
+          memory: 4G
     ports:
       - "5672:5672"
       - "15672:15672"
@@ -39,6 +44,8 @@ services:
     environment:
       - RABBITMQ_DEFAULT_USER=mardi
       - RABBITMQ_DEFAULT_PASS=password
+    volumes:
+      - ${PWD}/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
     restart: always
 
 networks:

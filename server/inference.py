@@ -3,6 +3,7 @@ import os
 import base64
 import cv2
 import torch
+import torch.nn.functional as F
 import numpy as np
 import onnxruntime as rt
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
@@ -19,15 +20,22 @@ from crud import update_inference
 #torch.cuda.set_per_process_memory_fraction(0.8, 0)
 
 class Inference():
-    def __init__(self, yolo_weights: str, sam_checkpoint: str, classification_model_path: str):
+    def __init__(self, yolo_classification_weights: str, yolo_detection_weights: str, sam_checkpoint: str, classification1_model_path: str, classification2_model_path: str):
         self.db = SessionLocal()
+        self.device = select_device('0')
+
+        # YOLOv5 classification model
+        self.yolov5_model = DetectMultiBackend(yolo_classification_weights, device=self.device, dnn=False, data='data/coco128.yaml', fp16=False)
+        self.stride_yolov5 = self.yolov5_model.stride
+        imgsz_yolov5 = check_img_size((224, 224), s=self.stride_yolov5)  # check image size
+        self.yolov5_model.warmup(imgsz=(1, 3, *imgsz_yolov5))
+
 
         # YOLOv9 model
-        self.device = select_device('0')
-        self.yolov9_model = DetectMultiBackend(yolo_weights, device=self.device, dnn=False, data='data/coco.yaml', fp16=False)
-        self.stride, self.names, pt = self.yolov9_model.stride, self.yolov9_model.names, self.yolov9_model.pt
-        self.imgsz = check_img_size((640, 640), s=self.stride)  # check image size
-        self.yolov9_model.warmup(imgsz=(1 if pt or self.yolov9_model.triton else 1, 3, *self.imgsz))  # warmup
+        self.yolov9_model = DetectMultiBackend(yolo_detection_weights, device=self.device, dnn=False, data='data/coco.yaml', fp16=False)
+        self.stride_yolov9, pt_yolov9 = self.yolov9_model.stride, self.yolov9_model.pt
+        imgsz_yolov9 = check_img_size((640, 640), s=self.stride_yolov9)  # check image size
+        self.yolov9_model.warmup(imgsz=(1 if pt_yolov9 or self.yolov9_model.triton else 1, 3, *imgsz_yolov9))  # warmup
 
         # SAM model
         model_type = "vit_h"
@@ -38,13 +46,29 @@ class Inference():
         sam = sam_model_registry[model_type](checkpoint=sam_checkpoint).to(device=self.device, non_blocking=True)
         self.mask_generator = SamAutomaticMaskGenerator(sam)
 
-        # Classification model
-        self.classification_model = rt.InferenceSession(classification_model_path, providers=["CPUExecutionProvider"])
-        self.classification_input_name = self.classification_model.get_inputs()[0].name
-        self.classification_label_name = self.classification_model.get_outputs()[0].name
+        # Classification Group 1 model
+        self.classification1_model = rt.InferenceSession(classification1_model_path, providers=["CPUExecutionProvider"])
+        self.classification1_input_name = self.classification1_model.get_inputs()[0].name
+        self.classification1_label_name = self.classification1_model.get_outputs()[0].name
 
-    def preprocess_image(self, image: np.ndarray) -> np.ndarray:
-        im = letterbox(image, 640, stride=self.stride, auto=True)[0]  # padded resize
+        # Classification Group 2 model
+        self.classification2_model = rt.InferenceSession(classification2_model_path, providers=["CPUExecutionProvider"])
+        self.classification2_input_name = self.classification2_model.get_inputs()[0].name
+        self.classification2_label_name = self.classification2_model.get_outputs()[0].name
+
+    def preprocess_image_yolov5(self, image: np.ndarray) -> np.ndarray:
+        im = cv2.resize(image, (224, 224))
+        im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+        im = np.ascontiguousarray(im)  # contiguous
+        im = torch.from_numpy(im).to(self.yolov5_model.device)
+        im = im.half() if self.yolov9_model.fp16 else im.float()  # uint8 to fp16/32
+        im /= 255  # 0 - 255 to 0.0 - 1.0
+        if len(im.shape) == 3:
+            im = im[None]  # expand for batch dim
+        return im
+
+    def preprocess_image_yolov9(self, image: np.ndarray) -> np.ndarray:
+        im = letterbox(image, 640, stride=self.stride_yolov9, auto=True)[0]  # padded resize
         im = im.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         im = np.ascontiguousarray(im)  # contiguous
         im = torch.from_numpy(im).to(self.yolov9_model.device)
@@ -64,10 +88,8 @@ class Inference():
         if image_result:
             update_data.image_result = image_result
         return update_inference(self.db, inference_id, update_data)
-
-    @smart_inference_mode()
-    def predict(self, image_url: str, inference_id: str):
-        self.update_progress(inference_id, "loading_image", 0)
+    
+    def detect_tree_area(self, inference_id: str, image: np.ndarray):
         # Define the desired classes
         desired_classes = [25, 58]
 
@@ -77,11 +99,8 @@ class Inference():
         agnostic_nms = False
         max_det = 1000
 
-        image = load_image(image_url)
-        image = resize_image(image, max_size=(256, 256))
-        im = self.preprocess_image(image)
-
         self.update_progress(inference_id, "detect_tree_area", 25)
+        im = self.preprocess_image_yolov9(image)
         pred = self.yolov9_model(im, augment=False, visualize=False)
         pred = non_max_suppression(pred, conf_thres, iou_thres, classes, agnostic_nms, max_det=max_det)
         self.sam_model.set_image(image)
@@ -136,7 +155,29 @@ class Inference():
         # Applying the binary mask to the original image
         # Where the binary mask is 0 (background), use white background; otherwise, use the original image.
         new_image = white_background * (1 - binary_mask[..., np.newaxis]) + image * binary_mask[..., np.newaxis]
-        grayscale_image = cv2.cvtColor(new_image.astype(np.uint8), cv2.COLOR_BGR2GRAY)
+
+        return new_image
+
+    @smart_inference_mode()
+    def predict(self, image_url: str, inference_id: str):
+        self.update_progress(inference_id, "loading_image", 0)
+
+        image = load_image(image_url)
+        image = resize_image(image, max_size=(256, 256))
+
+        self.update_progress(inference_id, "classify_plant_age_group", 10)
+        im = self.preprocess_image_yolov5(image)
+        results = self.yolov5_model(im)
+        top_class = results.argmax(dim=1).item()
+        age_group = self.yolov5_model.names[top_class]
+
+        print(f"Age group: {age_group}")
+        if age_group == "Class1":
+            new_image = self.detect_tree_area(inference_id, image)
+            grayscale_image = cv2.cvtColor(new_image.astype(np.uint8), cv2.COLOR_BGR2GRAY)
+        else:
+            grayscale_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
         noisy_img = add_noise(grayscale_image)
 
         image_rgb = cv2.cvtColor(noisy_img, cv2.COLOR_GRAY2RGB)
@@ -168,13 +209,20 @@ class Inference():
             annotated_image[segmentation > 0] = cv2.addWeighted(annotated_image, 0.5, np.full_like(annotated_image, color), 0.5, 0)[segmentation > 0]
             petal_count += 1
 
-        classification_input = np.array([[petal_count]]).astype(np.int64)
-        age = self.classification_model.run([self.classification_label_name], {self.classification_input_name: classification_input})[0]
+        classification_input = np.array([[petal_count]]).astype(np.float32)
+
+        if age_group == "Class1":
+            age = self.classification1_model.run([self.classification1_label_name], {self.classification1_input_name: classification_input})[0]
+        else:
+            age = self.classification2_model.run([self.classification2_label_name], {self.classification2_input_name: classification_input})[0]
 
         if len(age) > 0:
             age = age[0]
         else:
             age = None
+        
+        print(f"Petals: {petal_count}")
+        print(f"Age: {age}")
         
         # Encode the image to base64
         annotated_image = resize_image(annotated_image, max_size=(256, 256))

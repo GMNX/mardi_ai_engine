@@ -17,10 +17,12 @@ def callback(ch, method, properties: BasicProperties, body):
 
 
 # Initialize the pytorch model
-yolo_weights = "/data/yolov9/weights/gelan-c.pt"
+yolo_classification_weights = "/data/models/model_classification.onnx"
+yolo_detection_weights = "/data/yolov9/weights/gelan-c.pt"
 sam_checkpoint = "/data/models/sam_vit_h_4b8939.pth"
-classification_model_path = "/data/models/rf_mardi.onnx"
-model = Inference(yolo_weights, sam_checkpoint, classification_model_path)
+classification1_model_path = "/data/models/rf_model_class1.onnx"
+classification2_model_path = "/data/models/rf_model_class2.onnx"
+model = Inference(yolo_classification_weights, yolo_detection_weights, sam_checkpoint, classification1_model_path, classification2_model_path)
 
 # Initialize the RabbitMQ client
 rabbitmq_client = get_rabbitmq_connection()

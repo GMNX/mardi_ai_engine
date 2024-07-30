@@ -1,4 +1,6 @@
 import uuid
+from datetime import datetime
+import pytz
 from sqlalchemy import Column, String, Float, DateTime, event
 from sqlalchemy.sql import func
 from database import Base
@@ -21,13 +23,17 @@ class Inference(Base):
     def __repr__(self):
         return self.__str__()
 
+gmt_plus_8 = pytz.timezone('Asia/Kuala_Lumpur')
+
 # Event listener to set created_at and updated_at before insert
 @event.listens_for(Inference, 'before_insert')
 def set_created_at(mapper, connection, target):
-    target.created_at = func.now()
-    target.updated_at = func.now()
+    now = datetime.now(gmt_plus_8)
+    target.created_at = now
+    target.updated_at = now
 
 # Event listener to set updated_at before update
 @event.listens_for(Inference, 'before_update')
 def set_updated_at(mapper, connection, target):
-    target.updated_at = func.now()
+    now = datetime.now(gmt_plus_8)
+    target.updated_at = now

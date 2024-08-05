@@ -255,14 +255,14 @@ class Inference():
         data['r/b'] = (data['r'] / (data['b'] + 1e-8)).round(4)
         data['g/b'] = (data['g'] / (data['b'] + 1e-8)).round(4)
 
-        # Group by filename and calculate aggregated statistics for 'area'
+        # Calculate aggregated statistics for 'area'
         agg_area = data['area'].agg(['mean', 'median', 'std']).reset_index()
-        agg_area.columns = ['area_mean', 'area_median', 'area_std']
+        agg_area.columns = ['statistic', 'value']
 
         # Round aggregated statistics to 4 decimal places
-        area_mean = agg_area['area_mean'].round(4)
-        area_median = agg_area['area_median'].round(4)
-        area_std = agg_area['area_std'].round(4)
+        area_mean = agg_area.loc[agg_area['statistic'] == 'mean', 'value'].round(4).values[0]
+        area_median = agg_area.loc[agg_area['statistic'] == 'median', 'value'].round(4).values[0]
+        area_std = agg_area.loc[agg_area['statistic'] == 'std', 'value'].round(4).values[0]
 
         classification_input = np.array([[petal_count, area_std, area_mean, area_median]]).astype(np.float32)
 

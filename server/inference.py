@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import onnxruntime as rt
+import pandas as pd
 from segment_anything import sam_model_registry, SamPredictor, SamAutomaticMaskGenerator
 from utils.mardi import load_image, add_noise, filter_out_background, generate_colors, is_white_background, resize_image
 from models.common import DetectMultiBackend
@@ -110,6 +111,10 @@ class Inference():
         aggregate_mask = np.zeros(image.shape[:2], dtype=np.uint8)
         
         self.update_progress(inference_id, "generating_tree_mask", 30)
+        class_ids = []
+        bboxes = []
+        conf_scores = []
+
         # Process predictions
         for i, det in enumerate(pred):
             if len(det):
@@ -136,6 +141,35 @@ class Inference():
                     xmax = cx + w / 2
                     ymax = cy + h / 2
 
+                    class_ids.append(cls)
+                    bboxes.append((xmin, ymin, xmax, ymax))
+                    conf_scores.append(conf)
+
+                # Find the most central bounding box if there are multiple detections
+                def find_central_bbox(bboxes):
+                    center_x, center_y = image_width / 2, image_height / 2
+                    min_distance = float('inf')
+                    central_bbox = None
+                    central_class_id = None
+                    central_conf_score = None
+
+                    for class_id, bbox, conf_score in zip(class_ids, bboxes, conf_scores):
+                        if class_id in desired_classes:
+                            bbox_center_x = (bbox[0] + bbox[2]) / 2
+                            bbox_center_y = (bbox[1] + bbox[3]) / 2
+                            distance = np.sqrt((center_x - bbox_center_x) ** 2 + (center_y - bbox_center_y) ** 2)
+                            if distance < min_distance:
+                                min_distance = distance
+                                central_bbox = bbox
+                                central_class_id = class_id
+                                central_conf_score = conf_score
+
+                    return central_class_id, central_bbox, central_conf_score
+
+                # Get the most central bounding box
+                central_class_id, central_bbox, _ = find_central_bbox(bboxes)
+
+                if central_class_id is not None and central_bbox is not None:
                     # Generate and accumulate masks for each bounding box
                     input_box = np.array((xmin, ymin, xmax, ymax)).reshape(1, 4)
                     masks, _, _ = self.sam_model.predict(
@@ -197,7 +231,9 @@ class Inference():
 
         self.update_progress(inference_id, "classifying", 90)
         petal_count = 0
+        mask_data = []
         for i, mask in enumerate(filtered_masks):
+            area = mask['area']
             segmentation = mask['segmentation'].astype('uint8')
 
             # Skip white background areas
@@ -206,10 +242,29 @@ class Inference():
 
             # Color the segmented area
             color = colors[i]
+            r, g, b = color
             annotated_image[segmentation > 0] = cv2.addWeighted(annotated_image, 0.5, np.full_like(annotated_image, color), 0.5, 0)[segmentation > 0]
             petal_count += 1
+            mask_data.append([area, r, g, b])
 
-        classification_input = np.array([[petal_count]]).astype(np.float32)
+        columns = ['area', 'r', 'g', 'b']
+        data = pd.DataFrame(mask_data, columns=columns)
+
+        # Create derived features, handling potential division by zero
+        data['r/g'] = (data['r'] / (data['g'] + 1e-8)).round(4)  # Add a small constant to avoid division by zero and round to 4 decimals
+        data['r/b'] = (data['r'] / (data['b'] + 1e-8)).round(4)
+        data['g/b'] = (data['g'] / (data['b'] + 1e-8)).round(4)
+
+        # Group by filename and calculate aggregated statistics for 'area'
+        agg_area = data['area'].agg(['mean', 'median', 'std']).reset_index()
+        agg_area.columns = ['area_mean', 'area_median', 'area_std']
+
+        # Round aggregated statistics to 4 decimal places
+        area_mean = agg_area['area_mean'].round(4)
+        area_median = agg_area['area_median'].round(4)
+        area_std = agg_area['area_std'].round(4)
+
+        classification_input = np.array([[petal_count, area_std, area_mean, area_median]]).astype(np.float32)
 
         if age_group == "Class1":
             age = self.classification1_model.run([self.classification1_label_name], {self.classification1_input_name: classification_input})[0]

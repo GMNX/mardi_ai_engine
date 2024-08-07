@@ -17,6 +17,7 @@ services:
       - rabbitmq
     ports:
       - "8080:8080"
+      - "8888:8888"
     networks:
       - ai_network
     working_dir: ${DOCKER_ROOT}
@@ -25,7 +26,7 @@ services:
       - ${PWD}/${IMAGES_DIR}:${DOCKER_ROOT}/${IMAGES_DIR}
       - ${PWD}/${SERVER_DIR}:${DOCKER_ROOT}/${SERVER_DIR}
     restart: always
-    command: ["sh", "-c", "python3 server/main.py & python3 server/worker.py"]
+    command: ["sh", "-c", "./start.sh"]
 
   rabbitmq:
     image: rabbitmq:3.13-management

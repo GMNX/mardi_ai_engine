@@ -28,6 +28,32 @@ services:
     restart: always
     command: ["sh", "-c", "./start.sh"]
 
+  inference_worker:
+    image: pintarai/mardi:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - capabilities: [gpu]
+    shm_size: 8g
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    environment:
+      - NVIDIA_DRIVER_CAPABILITIES=all
+    runtime: nvidia
+    depends_on:
+      - rabbitmq
+    networks:
+      - ai_network
+    working_dir: ${DOCKER_ROOT}
+    volumes:
+      - ${PWD}/${NOTEBOOK_DIR}:${DOCKER_ROOT}/${NOTEBOOK_DIR}
+      - ${PWD}/${IMAGES_DIR}:${DOCKER_ROOT}/${IMAGES_DIR}
+      - ${PWD}/${SERVER_DIR}:${DOCKER_ROOT}/${SERVER_DIR}
+    restart: always
+    command: ["sh", "-c", "python3 server/worker.py"]
+
   rabbitmq:
     image: rabbitmq:3.13-management
     deploy:

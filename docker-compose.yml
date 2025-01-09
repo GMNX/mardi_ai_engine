@@ -1,6 +1,6 @@
 services:
   ai_engine:
-    image: pintarai/mardi:latest
+    image: registry.pintarai.com/pintarai/mardi:latest
     deploy:
       resources:
         reservations:
@@ -29,7 +29,7 @@ services:
     command: ["sh", "-c", "./start.sh"]
 
   inference_worker:
-    image: pintarai/mardi:latest
+    image: registry.pintarai.com/pintarai/mardi:latest
     deploy:
       resources:
         reservations:

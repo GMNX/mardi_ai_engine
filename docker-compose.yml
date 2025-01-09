@@ -41,7 +41,7 @@ services:
     #   memlock: -1
     #   stack: 67108864
     environment:
-      - NVIDIA_DRIVER_CAPABILITIES=all    runtime: nvidia
+      - NVIDIA_DRIVER_CAPABILITIES=all
     depends_on:
       - rabbitmq
     networks:

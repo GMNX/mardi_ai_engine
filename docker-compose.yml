@@ -5,14 +5,14 @@ services:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              capabilities: [gpu]
     shm_size: 8g
-    ulimits:
-      memlock: -1
-      stack: 67108864
+    # ulimits:
+    #   memlock: -1
+    #   stack: 67108864
     environment:
       - NVIDIA_DRIVER_CAPABILITIES=all
-    runtime: nvidia
     depends_on:
       - rabbitmq
     ports:
@@ -34,14 +34,14 @@ services:
       resources:
         reservations:
           devices:
-            - capabilities: [gpu]
+            - driver: nvidia
+              capabilities: [gpu]
     shm_size: 8g
-    ulimits:
-      memlock: -1
-      stack: 67108864
+    # ulimits:
+    #   memlock: -1
+    #   stack: 67108864
     environment:
-      - NVIDIA_DRIVER_CAPABILITIES=all
-    runtime: nvidia
+      - NVIDIA_DRIVER_CAPABILITIES=all    runtime: nvidia
     depends_on:
       - rabbitmq
     networks:
